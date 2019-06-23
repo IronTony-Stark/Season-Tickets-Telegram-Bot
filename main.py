@@ -6,7 +6,8 @@ import mysql.connector
 from flask import Flask
 
 # from flask_sslify import SSLify
-
+# TODO cashback
+# TODO months
 app = Flask(__name__)
 # sslify = SSLify(app)
 bot = telebot.TeleBot(constants.bot_token, threaded=False)
@@ -24,10 +25,6 @@ def get_username_or_first_name(chat_id, user_id):
     return name
 
 
-def get_key_by_value(dict_keys, value):
-    return dict_keys[list(database_tickets.values()).index(value)]
-
-
 def get_order_description_and_total_price(query):
     """
     Returns customer's order in string format (database_tickets keys) and total price of this order.
@@ -42,35 +39,19 @@ def get_order_description_and_total_price(query):
     return description, price
 
 
-def update_order_description_and_total_price_in_message(query, reply_markup):
+def get_updated_order_description_and_total_price_message(query) -> str:
     """
-    Changes the text of the message to contain current customer's order and total price of this order
+    If customer's order exists returns string containing the order description and total price
+    Else returns string with invitation to choose any season ticket
     """
     description, price = get_order_description_and_total_price(query)
     if description:
-        message_text = "Твоє замовлення: \n" + description + "\n\nЗагальна вартість: " + str(price) + " грн"
+        message_text = "Корзина: \n" + description + "\n\nЗагальна вартість: " + str(price) + " грн"
     else:
-        message_text = "Вибери проїзний або проїзні"
-    bot.edit_message_text(message_text,
-                          chat_id=query.message.chat.id,
-                          message_id=query.message.message_id,
-                          reply_markup=reply_markup)
-
-
-def generate_markup_remove_from_order_menu(query):
-    """
-    Generates keyboard markup consisting of tickets in customer's order, so he can delete this tickets from the order
-    """
-    markup_remove_from_order_menu = telebot.types.InlineKeyboardMarkup()
-    customer_order = get_customer_order(query)
-    for ticket in customer_order:
-        this_ticket_db_key = get_key_by_value(database_tickets_keys, ticket)
-        markup_remove_from_order_menu.row(telebot.types.InlineKeyboardButton(this_ticket_db_key + "грн",
-                                                                             callback_data=
-                                                                             this_ticket_db_key + " remove_ticket"))
-    markup_remove_from_order_menu.row(
-        telebot.types.InlineKeyboardButton("Назад", callback_data="return_to_buy_menu"))
-    return markup_remove_from_order_menu
+        message_text = "Спочатку вибери проїзний або проїзні, які хочеш замовити. Їх буде додано до корзини" \
+                       "\n\nПотім натисни 'Купити' та оплати замовлення" \
+                       "\n\nЯкщо потрібно видалити з корзини проїзний або проїзні натисни 'Видалити з корзини'."
+    return message_text
 
 
 @app.route('/', methods=['GET', 'HEAD'])
@@ -89,25 +70,33 @@ def webhook():
         flask.abort(403)
 
 
-@bot.message_handler(commands=['buy'])
+@bot.message_handler(commands=['menu'])
 def handle_text(message):
-    bot.send_message(message.chat.id, "Вибери проїзний або проїзні", reply_markup=markup_buy_menu_1)
+    bot.send_message(message.chat.id,
+                     get_updated_order_description_and_total_price_message(message),
+                     reply_markup=markup_buy_menu_1)
 
 
 @bot.callback_query_handler(lambda query: query.data == "Sort by 1st column")
-def process_callback_1(query):
-    update_order_description_and_total_price_in_message(query, markup_buy_menu_1)
+def main_menu_sorted_by_1_column(query):
+    bot.edit_message_text(get_updated_order_description_and_total_price_message(query),
+                          chat_id=query.message.chat.id,
+                          message_id=query.message.message_id,
+                          reply_markup=markup_buy_menu_1)
     bot.answer_callback_query(query.id)
 
 
 @bot.callback_query_handler(lambda query: query.data == "Sort by 2nd column")
-def process_callback_1(query):
-    update_order_description_and_total_price_in_message(query, markup_buy_menu_2)
+def main_menu_sorted_by_2_column(query):
+    bot.edit_message_text(get_updated_order_description_and_total_price_message(query),
+                          chat_id=query.message.chat.id,
+                          message_id=query.message.message_id,
+                          reply_markup=markup_buy_menu_2)
     bot.answer_callback_query(query.id)
 
 
 @bot.callback_query_handler(lambda query: query.data in database_tickets_keys)
-def process_callback_1(query):
+def add_ticket(query):
     awake_mysql_db()
     try:
         sql = "INSERT INTO customers (User_Id, Username, Orders) VALUES (%s, %s, %s)"
@@ -124,34 +113,54 @@ def process_callback_1(query):
         val = (customer_order + database_tickets.get(query.data), query.from_user.id)
         cursor.execute(sql, val)
     db.commit()
-    update_order_description_and_total_price_in_message(query, get_current_buy_menu_markup(query))
-    bot.answer_callback_query(query.id, "Додано " + query.data)
+    bot.edit_message_text(get_updated_order_description_and_total_price_message(query),
+                          chat_id=query.message.chat.id,
+                          message_id=query.message.message_id,
+                          reply_markup=get_current_buy_menu_markup(query))
+    bot.answer_callback_query(query.id, "\"" + query.data + "\" додано до корзини")
 
 
 @bot.callback_query_handler(lambda query: query.data == "buy")
-def process_callback_1(query):
+def buy(query):
     description, price = get_order_description_and_total_price(query)
     if not description:
-        bot.answer_callback_query(query.id, "Ти нічого не замовив", True)
+        bot.answer_callback_query(query.id, "Твоя корзина порожня. Вибери проїзні, які хочеш купити", True)
         return
-    bot.delete_message(query.message.chat.id, query.message.message_id)
-    bot.send_invoice(query.message.chat.id, "Season tickets", "Твоє замовлення: \n" + description + "\n",
+    bot.send_invoice(query.message.chat.id,
+                     "Season tickets", "Твоє замовлення: \n" + description + "\n",
                      "Custom-Payload",
-                     constants.payment_provider_token, "UAH", [telebot.types.LabeledPrice("Test", price * 100)],
-                     "test-payment", reply_markup=markup_invoice)
+                     constants.payment_provider_token,
+                     "UAH",
+                     [telebot.types.LabeledPrice("Season tickets", price * 100)],
+                     "test-payment",
+                     reply_markup=markup_invoice)
     bot.answer_callback_query(query.id)
 
 
+@bot.pre_checkout_query_handler(func=lambda query: True)
+def pre_checkout(pre_checkout_query):
+    bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True,
+                                  error_message="Well... Looks like something went wrong. Please, contact me.")
+
+
+@bot.message_handler(content_types=['successful_payment'])
+def successful_payment(message):
+    bot.send_message(message.chat.id,
+                     "Якщо потрбіно, ти можеш дозамовити проїзні. \n\nЯкщо ти передумав (-ла) і хочеш відмінити "
+                     "замовлення проїзного або проїзних, натисни '' у головному меню (/menu)")
+
+
 @bot.callback_query_handler(lambda query: query.data == "remove_from_order_menu")
-def process_callback_1(query):
-    bot.delete_message(query.message.chat.id, query.message.message_id)
-    bot.send_message(query.message.chat.id, "Вибери проїзні, які потрібно видалити з замовлення",
-                     reply_markup=generate_markup_remove_from_order_menu(query))
+def remove_from_order_menu(query):
+    bot.edit_message_text("Вибери проїзні, які потрібно видалити з корзини",
+                          chat_id=query.message.chat.id,
+                          message_id=query.message.message_id,
+                          reply_markup=generate_markup_remove_from_order_menu(query))
     bot.answer_callback_query(query.id)
 
 
 @bot.callback_query_handler(lambda query: query.data in [key + " remove_ticket" for key in database_tickets_keys])
-def process_callback_1(query):
+def remove_ticket(query):
     awake_mysql_db()
     old_order = get_customer_order(query)
     new_order = old_order.replace(database_tickets.get(query.data[:-14]), "", 1)
@@ -159,22 +168,19 @@ def process_callback_1(query):
     val = (new_order, query.from_user.id)
     cursor.execute(sql, val)
     db.commit()
-    bot.edit_message_text("Вибери проїзні, які потрібно видалити з замовлення",
+    bot.edit_message_text("Вибери проїзні, які потрібно видалити з корзини",
                           chat_id=query.message.chat.id,
                           message_id=query.message.message_id,
                           reply_markup=generate_markup_remove_from_order_menu(query))
-    bot.answer_callback_query(query.id, "\"" + query.data[:-14] + "грн\" видалено з замовлення")
+    bot.answer_callback_query(query.id, "\"" + query.data[:-14] + "грн\" видалено з корзини")
 
 
 @bot.callback_query_handler(lambda query: query.data == "return_to_buy_menu")
-def process_callback_1(query):
-    description, price = get_order_description_and_total_price(query)
-    if description:
-        message_text = "Твоє замовлення: \n" + description + "\n\nЗагальна вартість: " + str(price) + " грн"
-    else:
-        message_text = "Вибери проїзний або проїзні"
-    bot.send_message(query.message.chat.id, message_text, reply_markup=markup_buy_menu_1)
-    bot.delete_message(query.message.chat.id, query.message.message_id)
+def return_to_buy_menu(query):
+    bot.edit_message_text(get_updated_order_description_and_total_price_message(query),
+                          chat_id=query.message.chat.id,
+                          message_id=query.message.message_id,
+                          reply_markup=markup_buy_menu_1)
     bot.answer_callback_query(query.id)
 
 

@@ -21,6 +21,10 @@ database_tickets = {
 database_tickets_keys = list(database_tickets.keys())
 
 
+def get_key_by_value(dict_keys, value):
+    return dict_keys[list(database_tickets.values()).index(value)]
+
+
 def awake_mysql_db():
     """
     If there's no connection, creates one, else pings to wake up the connection
@@ -32,12 +36,12 @@ def awake_mysql_db():
         db.ping(True)
 
 
-def get_customer_order(query):
+def get_customer_order(query_or_message):
     """
     Returns customer's order in number format (database_tickets values).
     """
     awake_mysql_db()
     sql = "SELECT ORDERS FROM customers WHERE User_Id = %s"
-    val = (query.from_user.id,)
+    val = (query_or_message.from_user.id,)
     cursor.execute(sql, val)
     return cursor.fetchall()[0][0]
