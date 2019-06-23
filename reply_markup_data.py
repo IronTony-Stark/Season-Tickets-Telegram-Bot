@@ -29,8 +29,8 @@ markup_buy_menu_1.row(telebot.types.InlineKeyboardButton("{:32}{:24}{}".format("
                                                          callback_data=database_tickets_keys[10]))
 markup_buy_menu_1.row(telebot.types.InlineKeyboardButton("{:26}{:24}{}".format("Метро-Трамвай", "Безліміт", "433грн"),
                                                          callback_data=database_tickets_keys[11]))
-markup_buy_menu_1.row(telebot.types.InlineKeyboardButton("Видалити з корзини", callback_data="remove_from_order_menu"))
-markup_buy_menu_1.row(telebot.types.InlineKeyboardButton("Купити", callback_data="buy"),)
+markup_buy_menu_1.row(telebot.types.InlineKeyboardButton("Видалити з корзини", callback_data="remove_from_cart_menu"))
+markup_buy_menu_1.row(telebot.types.InlineKeyboardButton("Купити", callback_data="buy"), )
 
 # Sorted by second column
 markup_buy_menu_2 = telebot.types.InlineKeyboardMarkup()
@@ -60,8 +60,8 @@ markup_buy_menu_2.row(telebot.types.InlineKeyboardButton("{:24}{:24}{}".format("
                                                          callback_data=database_tickets_keys[8]))
 markup_buy_menu_2.row(telebot.types.InlineKeyboardButton("{:26}{:24}{}".format("Метро-Трамвай", "Безліміт", "433грн"),
                                                          callback_data=database_tickets_keys[11]))
-markup_buy_menu_2.row(telebot.types.InlineKeyboardButton("Видалити з корзини", callback_data="remove_from_order_menu"))
-markup_buy_menu_2.row(telebot.types.InlineKeyboardButton("Купити", callback_data="buy"),)
+markup_buy_menu_2.row(telebot.types.InlineKeyboardButton("Видалити з корзини", callback_data="remove_from_cart_menu"))
+markup_buy_menu_2.row(telebot.types.InlineKeyboardButton("Купити", callback_data="buy"), )
 
 markup_contact_me = telebot.types.InlineKeyboardMarkup()
 markup_contact_me.row(telebot.types.InlineKeyboardButton("@TonyStarkZal", url="https://t.me/TonyStarkZal"))
@@ -70,20 +70,20 @@ markup_invoice = telebot.types.InlineKeyboardMarkup()
 markup_invoice.row(telebot.types.InlineKeyboardButton("Заплатити", pay=True))
 
 
-def generate_markup_remove_from_order_menu(query):
+def generate_markup_remove_from_cart_menu(query):
     """
-    Generates keyboard markup consisting of tickets in customer's order, so he can delete this tickets from the order
+    Generates keyboard markup consisting of tickets in customer's cart, so he can delete this tickets from the cart
     """
-    markup_remove_from_order_menu = telebot.types.InlineKeyboardMarkup()
-    customer_order = get_customer_order(query)
-    for ticket in customer_order:
+    markup_remove_from_cart_menu = telebot.types.InlineKeyboardMarkup()
+    customer_cart = get_customer_cart(query)
+    for ticket in customer_cart:
         this_ticket_db_key = get_key_by_value(database_tickets_keys, ticket)
-        markup_remove_from_order_menu.row(telebot.types.InlineKeyboardButton(this_ticket_db_key + "грн",
-                                                                             callback_data=
-                                                                             this_ticket_db_key + " remove_ticket"))
-    markup_remove_from_order_menu.row(
+        markup_remove_from_cart_menu.row(telebot.types
+                                         .InlineKeyboardButton(this_ticket_db_key + "грн",
+                                                               callback_data=this_ticket_db_key + " remove_ticket"))
+    markup_remove_from_cart_menu.row(
         telebot.types.InlineKeyboardButton("Назад", callback_data="return_to_buy_menu"))
-    return markup_remove_from_order_menu
+    return markup_remove_from_cart_menu
 
 
 def get_current_buy_menu_markup(query):

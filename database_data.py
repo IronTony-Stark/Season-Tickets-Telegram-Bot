@@ -36,12 +36,41 @@ def awake_mysql_db():
         db.ping(True)
 
 
+# TODO duplicate with get_customer_order
+def get_customer_cart(query_or_message):
+    """
+    Returns customer's cart in number format (database_tickets values).
+    """
+    awake_mysql_db()
+    sql = "SELECT Cart FROM customers WHERE User_Id = %s"
+    val = (query_or_message.from_user.id,)
+    cursor.execute(sql, val)
+    result = cursor.fetchall()
+    if not result:
+        return None
+    return result[0][0]
+
+
 def get_customer_order(query_or_message):
     """
     Returns customer's order in number format (database_tickets values).
     """
     awake_mysql_db()
-    sql = "SELECT ORDERS FROM customers WHERE User_Id = %s"
+    sql = "SELECT Orders FROM customers WHERE User_Id = %s"
+    val = (query_or_message.from_user.id,)
+    cursor.execute(sql, val)
+    result = cursor.fetchall()
+    if not result:
+        return None
+    return result[0][0]
+
+
+def get_customer_id(query_or_message):
+    """
+    Returns database id of the user
+    """
+    awake_mysql_db()
+    sql = "SELECT Customer_Id FROM customers WHERE User_Id = %s"
     val = (query_or_message.from_user.id,)
     cursor.execute(sql, val)
     return cursor.fetchall()[0][0]
