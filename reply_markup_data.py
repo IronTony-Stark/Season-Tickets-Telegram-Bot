@@ -63,27 +63,84 @@ markup_buy_menu_2.row(telebot.types.InlineKeyboardButton("{:26}{:24}{}".format("
 markup_buy_menu_2.row(telebot.types.InlineKeyboardButton("Видалити з корзини", callback_data="remove_from_cart_menu"))
 markup_buy_menu_2.row(telebot.types.InlineKeyboardButton("Купити", callback_data="buy"), )
 
-markup_contact_me = telebot.types.InlineKeyboardMarkup()
-markup_contact_me.row(telebot.types.InlineKeyboardButton("@TonyStarkZal", url="https://t.me/TonyStarkZal"))
-
 markup_invoice = telebot.types.InlineKeyboardMarkup()
 markup_invoice.row(telebot.types.InlineKeyboardButton("Заплатити", pay=True))
 
+markup_admin_confirms_refund = telebot.types.InlineKeyboardMarkup()
+markup_admin_confirms_refund.row(telebot.types.InlineKeyboardButton("Done", callback_data="admin confirms refund"))
 
-def generate_markup_remove_from_cart_menu(query):
+markup_user_requests_registration = telebot.types.InlineKeyboardMarkup()
+markup_user_requests_registration.row(telebot.types.InlineKeyboardButton("Відправити заявку",
+                                                                         callback_data="user requests registration"))
+markup_user_requests_registration.row(telebot.types.InlineKeyboardButton("@TonyStarkZal",
+                                                                         url="https://t.me/TonyStarkZal"))
+
+markup_admin_confirms_user_registration = telebot.types.InlineKeyboardMarkup()
+markup_admin_confirms_user_registration.row(
+    telebot.types.InlineKeyboardButton("Ok", callback_data="admin confirms registration"))
+markup_admin_confirms_user_registration.row(
+    telebot.types.InlineKeyboardButton("Reject", callback_data="admin rejects registration"))
+
+markup_contact_me = telebot.types.InlineKeyboardMarkup()
+markup_contact_me.row(telebot.types.InlineKeyboardButton("@TonyStarkZal", url="https://t.me/TonyStarkZal"))
+
+markup_admin = telebot.types.InlineKeyboardMarkup()
+markup_admin.row(telebot.types.InlineKeyboardButton("Відкрити", callback_data="open"))
+markup_admin.row(telebot.types.InlineKeyboardButton("Закрити", callback_data="close"))
+
+
+def generate_markup_remove_from_cart_menu(query_or_message):
     """
-    Generates keyboard markup consisting of tickets in customer's cart, so he can delete this tickets from the cart
+    Returns keyboard markup consisting of tickets in customer's CART
     """
     markup_remove_from_cart_menu = telebot.types.InlineKeyboardMarkup()
-    customer_cart = get_customer_cart(query)
+    customer_cart = get_customer_cart(query_or_message)
     for ticket in customer_cart:
         this_ticket_db_key = get_key_by_value(database_tickets_keys, ticket)
-        markup_remove_from_cart_menu.row(telebot.types
-                                         .InlineKeyboardButton(this_ticket_db_key + "грн",
-                                                               callback_data=this_ticket_db_key + " remove_ticket"))
+        markup_remove_from_cart_menu.row(
+            telebot.types.InlineKeyboardButton(this_ticket_db_key + "грн",
+                                               callback_data=this_ticket_db_key + " remove_ticket"))
     markup_remove_from_cart_menu.row(
         telebot.types.InlineKeyboardButton("Назад", callback_data="return_to_buy_menu"))
     return markup_remove_from_cart_menu
+
+
+def generate_markup_remove_from_order_menu(query_or_message):
+    """
+    Returns keyboard markup consisting of tickets in customer's ORDER
+    """
+    markup_remove_from_order_menu = telebot.types.InlineKeyboardMarkup()
+    customer_order_after_refund = get_customer_orders_after_refund(query_or_message)
+    for ticket in customer_order_after_refund:
+        this_ticket_db_key = get_key_by_value(database_tickets_keys, ticket)
+        markup_remove_from_order_menu.row(
+            telebot.types.InlineKeyboardButton(this_ticket_db_key + "грн",
+                                               callback_data=this_ticket_db_key + " refund_ticket"))
+    markup_remove_from_order_menu.row(
+        telebot.types.InlineKeyboardButton("Видалити проїзні з замовлення", callback_data="user requests refund"))
+    return markup_remove_from_order_menu
+
+
+def generate_markup_choose_orders_month():
+    """
+    Returns keyboard markup consisting of months on which it is possible to buy season tickets
+    """
+    markup_choose_orders_month = telebot.types.InlineKeyboardMarkup()
+    for month in constants.months_for_which_tickets_can_be_ordered:
+        markup_choose_orders_month.row(telebot.types.InlineKeyboardButton(month,
+                                                                          callback_data="buy choose month " + month))
+    return markup_choose_orders_month
+
+
+def generate_markup_choose_refund_month():
+    """
+    Returns keyboard markup consisting of months on which it is possible to request a refund for season tickets
+    """
+    markup_choose_refund_month = telebot.types.InlineKeyboardMarkup()
+    for month in constants.months_for_which_tickets_can_be_ordered:
+        markup_choose_refund_month.row(telebot.types.InlineKeyboardButton(month,
+                                                                          callback_data="refund choose month " + month))
+    return markup_choose_refund_month
 
 
 def get_current_buy_menu_markup(query):

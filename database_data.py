@@ -36,7 +36,6 @@ def awake_mysql_db():
         db.ping(True)
 
 
-# TODO duplicate with get_customer_order
 def get_customer_cart(query_or_message):
     """
     Returns customer's cart in number format (database_tickets values).
@@ -51,12 +50,82 @@ def get_customer_cart(query_or_message):
     return result[0][0]
 
 
-def get_customer_order(query_or_message):
+def get_customer_orders(query_or_message, month_of_order=None):
     """
-    Returns customer's order in number format (database_tickets values).
+    Returns customer's orders in number format (database_tickets values).
     """
     awake_mysql_db()
     sql = "SELECT Orders FROM customers WHERE User_Id = %s"
+    val = (query_or_message.from_user.id,)
+    cursor.execute(sql, val)
+    result = cursor.fetchall()
+    if not result:
+        return None
+    orders = result[0][0]
+    if not orders:
+        return None
+    if not month_of_order:
+        month_of_order = get_month_of_order(query_or_message)
+    months_orders = orders.split()
+    for order in months_orders:
+        if month_of_order in order:
+            return order.replace(month_of_order, "")
+
+
+def get_customer_orders_by_user_id(user_id, month_of_order):
+    """
+    Returns customer's orders in number format (database_tickets values) using user id.
+    """
+    awake_mysql_db()
+    sql = "SELECT Orders FROM customers WHERE User_Id = %s"
+    val = (user_id,)
+    cursor.execute(sql, val)
+    result = cursor.fetchall()
+    if not result:
+        return None
+    orders = result[0][0]
+    if not orders:
+        return None
+    months_orders = orders.split()
+    for order in months_orders:
+        if month_of_order in order:
+            return order.replace(month_of_order, "")
+
+
+def get_full_customer_orders(query_or_message):
+    """
+    Returns customer's orders in number format (database_tickets values).
+    """
+    awake_mysql_db()
+    sql = "SELECT Orders FROM customers WHERE User_Id = %s"
+    val = (query_or_message.from_user.id,)
+    cursor.execute(sql, val)
+    result = cursor.fetchall()
+    if not result:
+        return None
+    return result[0][0]
+
+
+def get_customer_orders_after_refund(query_or_message):
+    """
+    Returns customer's orders after the refund in number format (database_tickets values).
+    """
+    awake_mysql_db()
+    sql = "SELECT OrdersAfterRefund FROM customers WHERE User_Id = %s"
+    val = (query_or_message.from_user.id,)
+    cursor.execute(sql, val)
+    result = cursor.fetchall()
+    if not result:
+        return None
+    return result[0][0]
+
+
+def get_month_of_order(query_or_message):
+    """
+    Returns the month on which the user orders season tickets
+    """
+    awake_mysql_db()
+    sql = "SELECT MonthOfOrder FROM customers WHERE User_Id = %s"
     val = (query_or_message.from_user.id,)
     cursor.execute(sql, val)
     result = cursor.fetchall()
