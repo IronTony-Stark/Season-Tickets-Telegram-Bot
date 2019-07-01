@@ -5,12 +5,30 @@ import flask
 import mysql.connector
 import datetime
 from flask import Flask
-# from flask_sslify import SSLify
+from flask_sslify import SSLify
 
 app = Flask(__name__)
-# sslify = SSLify(app)
+sslify = SSLify(app)
 bot = telebot.TeleBot(constants.bot_token, threaded=False)
 is_opened = True
+
+
+def bold(string):
+    """
+    Surrounds the string with asterisks (*) so it will be parsed bold when using markdown
+    """
+    if not isinstance(string, str):
+        raise TypeError("Must be given a string")
+    return "*" + string + "*"
+
+
+def italic(string):
+    """
+    Surrounds the string with underscores (_) so it will be parsed italic when using markdown
+    """
+    if not isinstance(string, str):
+        raise TypeError("Must be given a string")
+    return "_" + string + " _"
 
 
 def get_username_or_first_name(chat_id, user_id):
@@ -47,15 +65,17 @@ def get_updated_cart_description_and_total_price_message(query) -> str:
     Else returns string with invitation to choose any season ticket
     """
     description, price = get_cart_description_and_total_price(query)
-    month_of_order = "Місяць замовлення: " + get_month_of_order(query)
+    month_of_order = "Місяць замовлення: " + bold(get_month_of_order(query))
     if description:
-        message_text = month_of_order + "\n\nКорзина: \n" + description + "\n\nЗагальна вартість: " + str(
-            price) + " грн"
+        message_text = month_of_order + "\n\n" + italic("Корзина") + ": \n" + description + "\n\nЗагальна вартість: " \
+                       + bold(str(price)) + " грн"
     else:
         message_text = month_of_order + \
-                       "\n\nСпочатку вибери проїзний або проїзні, які хочеш замовити. Їх буде додано до корзини" \
-                       "\n\nПотім натисни 'Купити' та оплати замовлення" \
-                       "\n\nЯкщо потрібно видалити з корзини проїзний або проїзні, натисни 'Видалити з корзини'."
+                       "\n\nСпочатку вибери проїзний або проїзні, які хочеш замовити. Їх буде додано до " + \
+                       italic("корзини") + \
+                       "\n\nПотім натисни " + italic("'Купити'") + " та оплати замовлення" \
+                       "\n\nЯкщо потрібно видалити з " + italic("корзини") + \
+                       " проїзний або проїзні, натисни " + italic("'Видалити з корзини'") + "."
     return message_text
 
 
@@ -87,6 +107,7 @@ def handle_text(message):
 
 @bot.callback_query_handler(lambda query: query.data.startswith("buy choose month"))
 def choose_month(query):
+    awake_mysql_db()
     current_month = query.data.split()[3]
     if current_month not in constants.months_for_which_tickets_can_be_ordered:
         bot.answer_callback_query(query.id, "Неправильний місяць замовлення", True)
@@ -112,7 +133,8 @@ def choose_month(query):
     bot.edit_message_text(get_updated_cart_description_and_total_price_message(query),
                           chat_id=query.message.chat.id,
                           message_id=query.message.message_id,
-                          reply_markup=markup_buy_menu_1)
+                          reply_markup=markup_buy_menu_1,
+                          parse_mode='markdown')
     bot.answer_callback_query(query.id, orders_month)
 
 
@@ -121,7 +143,8 @@ def buy_menu_sorted_by_1_column(query):
     bot.edit_message_text(get_updated_cart_description_and_total_price_message(query),
                           chat_id=query.message.chat.id,
                           message_id=query.message.message_id,
-                          reply_markup=markup_buy_menu_1)
+                          reply_markup=markup_buy_menu_1,
+                          parse_mode='markdown')
     bot.answer_callback_query(query.id)
 
 
@@ -130,7 +153,8 @@ def buy_menu_sorted_by_2_column(query):
     bot.edit_message_text(get_updated_cart_description_and_total_price_message(query),
                           chat_id=query.message.chat.id,
                           message_id=query.message.message_id,
-                          reply_markup=markup_buy_menu_2)
+                          reply_markup=markup_buy_menu_2,
+                          parse_mode='markdown')
     bot.answer_callback_query(query.id)
 
 
@@ -165,7 +189,8 @@ def add_ticket_to_cart(query):
     bot.edit_message_text(get_updated_cart_description_and_total_price_message(query),
                           chat_id=query.message.chat.id,
                           message_id=query.message.message_id,
-                          reply_markup=get_current_buy_menu_markup(query))
+                          reply_markup=get_current_buy_menu_markup(query),
+                          parse_mode='markdown')
     bot.answer_callback_query(query.id, "\"" + query.data + "\" додано до корзини")
 
 
@@ -185,7 +210,7 @@ def buy(query):
                      constants.payment_provider_token,
                      "UAH",
                      [telebot.types.LabeledPrice("Season tickets", price * 100)],
-                     "test-payment",
+                     "season-tickets",
                      reply_markup=markup_invoice)
     bot.answer_callback_query(query.id)
 
@@ -202,9 +227,10 @@ def pre_checkout(pre_checkout_query):
             False,
             "Помилка доступу - невідомий покупець. Деталі у останньому повідомленні")
         bot.send_message(pre_checkout_query.from_user.id,
-                         "Схоже, ти купуєш проїзні у мене вперше. Я не можу продавати незнайомцям. "
-                         "\n\nЯкщо хочеш замовляти у мене, натисни \"Відправити заявку\" Я зв'яжусь с тобою і ми "
-                         "узгодимо всі деталі: коли можна замовляти, чи зручно тобі буде їх забирати у мене тощо. "
+                         "Схоже, ти купуєш проїзні у мене вперше. Я не можу продавати незнайомцям."
+                         "\n\nЯкщо хочеш замовляти у мене, натисни " + italic("\"Відправити заявку\"") +
+                         "Я зв'яжусь с тобою і ми узгодимо всі деталі: коли можна замовляти, чи зручно тобі "
+                         "буде їх забирати у мене тощо."
                          "\n\nПотім бот додасть тебе в список покупців, повідомить тебе про це, і ти зможеш замовляти "
                          "у мене проїзні",
                          reply_markup=markup_user_requests_registration)
@@ -275,7 +301,8 @@ def return_to_buy_menu(query):
     bot.edit_message_text(get_updated_cart_description_and_total_price_message(query),
                           chat_id=query.message.chat.id,
                           message_id=query.message.message_id,
-                          reply_markup=markup_buy_menu_1)
+                          reply_markup=markup_buy_menu_1,
+                          parse_mode='markdown')
     bot.answer_callback_query(query.id)
 
 
@@ -286,25 +313,30 @@ def handle_text(message):
         return
     words = message.text.split()
     if len(words) != 2:
-        bot.send_message(message.chat.id, "Неправильний формат"
-                                          "\nБудь ласка, напиши \"/refund [номер твоєї картки]\""
-                                          "\nБудь уважний, адже саме на цю картку я перерахую твої гроші за проїзні!"
-                                          "\nНаприклад, \"/refund 5168424242424242\"")
+        bot.send_message(message.chat.id,
+                         "Неправильний формат"
+                         "\nБудь ласка, напиши \"/refund [[номер твоєї картки]]\"" +
+                         "\n" + bold("Будь уважний, адже саме на цю картку я перерахую твої гроші за проїзні!") +
+                         "\nНаприклад, \"/refund 5168424242424242\"",
+                         parse_mode='markdown')
         return
 
     card_number = words[1]
 
     if not constants.card_number_pattern.match(card_number):
-        bot.send_message(message.chat.id, "Неправильний формат номера картки. Має бути 16 цифр"
-                                          "\nБудь ласка, напиши \"/refund [номер твоєї картки]\""
-                                          "\nБудь уважний, адже саме на цю картку я перерахую твої гроші за проїзні!"
-                                          "\nНаприклад, \"/refund 5168424242424242\"")
+        bot.send_message(message.chat.id,
+                         "Неправильний формат номера картки. Має бути 16 цифр"
+                         "\nБудь ласка, напиши \"/refund [[номер твоєї картки]]\""
+                         "\n" + bold("Будь уважний, адже саме на цю картку я перерахую твої гроші за проїзні!") +
+                         "\nНаприклад, \"/refund 5168424242424242\"",
+                         parse_mode='markdown')
         return
 
     bot.send_message(message.chat.id,
                      "Вибери місяць, де ти хочеш скасувати замовлення проїзного або проїзних та повернути гроші на "
-                     "картку " + card_number,
-                     reply_markup=generate_markup_choose_refund_month())
+                     "картку " + bold(card_number),
+                     reply_markup=generate_markup_choose_refund_month(),
+                     parse_mode='markdown')
 
 
 @bot.callback_query_handler(lambda query: query.data.startswith("refund choose month"))
@@ -324,13 +356,14 @@ def remove_ticket(query):
     val = (orders, query.from_user.id)
     cursor.execute(sql, val)
 
-    bot.send_message(query.message.chat.id,
-                     "Спочатку вибери проїзні, які хочеш видалити з замовлення на " + month +
-                     "\n\nПотім натисни \"Видалити проїзні з "
-                     "замовлення.\" \n\nКоли у мене буде час я перерахую кошти на твою картку " +
-                     query.message.text[-16:] +
-                     " та повідомлю тебе про це",
-                     reply_markup=generate_markup_remove_from_order_menu(query))
+    bot.edit_message_text("Спочатку вибери проїзні, які хочеш видалити з замовлення на " + bold(month) +
+                          "\n\nПотім натисни " + italic("\"Видалити проїзні з замовлення\".") +
+                          "\n\nКоли у мене буде час я перерахую кошти на твою картку " +
+                          bold(query.message.text[-16:]) + " та повідомлю тебе про це",
+                          chat_id=query.message.chat.id,
+                          message_id=query.message.message_id,
+                          reply_markup=generate_markup_remove_from_order_menu(query),
+                          parse_mode='markdown')
 
     bot.answer_callback_query(query.id)
 
@@ -441,6 +474,9 @@ def admin_confirms_refund(query):
                           message_id=query.message.message_id)
     new_user_id = int(query.message.text.split()[-1])
     bot.send_message(new_user_id, "Відправив кошти, скоро мають прийти")
+    bot.edit_message_text("Successful refund\n" + query.message.text,
+                          chat_id=query.message.chat.id,
+                          message_id=query.message.message_id)
     bot.answer_callback_query(query.id)
 
 
@@ -453,7 +489,7 @@ def open_form(query):
         try:
             bot.send_message(customer_id, "Замовлення відкрито!")
         except telebot.apihelper.ApiException:
-            # If the user has blocked the bot
+            # If user has blocked the bot
             constants.customers_IDs.remove(customer_id)
 
 
@@ -523,6 +559,9 @@ def admin_confirms_registration(query):
     id_of_new_user = int(query.message.text.split()[1])
     constants.customers_IDs.append(id_of_new_user)
     bot.send_message(id_of_new_user, "Вітаю, тепер ти можеш замовляти у мене проїзні :) Натисни /buy")
+    bot.edit_message_text("Confirmed\n" + query.message.text,
+                          chat_id=query.message.chat.id,
+                          message_id=query.message.message_id)
     bot.answer_callback_query(query.id)
 
 
@@ -533,6 +572,9 @@ def admin_rejects_registration(query):
                      "Вибач, але я не можу продавати тобі проїзні :("
                      "\nЩоб дізнатися деталі, напиши мені в приватні повідомлення",
                      reply_markup=markup_contact_me)
+    bot.edit_message_text("Rejected\n" + query.message.text,
+                          chat_id=query.message.chat.id,
+                          message_id=query.message.message_id)
     bot.answer_callback_query(query.id)
 
 
@@ -540,9 +582,10 @@ def admin_rejects_registration(query):
 def handle_text(message):
     if message.from_user.id not in constants.customers_IDs:
         bot.send_message(message.chat.id,
-                         "Схоже, ти купуєш проїзні у мене вперше. Я не можу продавати незнайомцям. "
-                         "\n\nЯкщо хочеш замовляти у мене, натисни \"Відправити заявку\" Я зв'яжусь с тобою і ми "
-                         "узгодимо всі деталі: коли можна замовляти, чи зручно тобі буде їх забирати у мене тощо. "
+                         "Схоже, ти купуєш проїзні у мене вперше. Я не можу продавати незнайомцям."
+                         "\n\nЯкщо хочеш замовляти у мене, натисни " + italic("\"Відправити заявку\"") +
+                         "Я зв'яжусь с тобою і ми узгодимо всі деталі: коли можна замовляти, чи зручно тобі "
+                         "буде їх забирати у мене тощо."
                          "\n\nПотім бот додасть тебе в список покупців, повідомить тебе про це, і ти зможеш замовляти "
                          "у мене проїзні",
                          reply_markup=markup_user_requests_registration)
