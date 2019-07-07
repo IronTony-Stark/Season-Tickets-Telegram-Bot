@@ -74,9 +74,63 @@ def get_updated_cart_description_and_total_price_message(query) -> str:
                        "\n\nСпочатку вибери проїзний або проїзні, які хочеш замовити. Їх буде додано до " + \
                        italic("корзини") + \
                        "\n\nПотім натисни " + italic("'Купити'") + " та оплати замовлення" \
-                       "\n\nЯкщо потрібно видалити з " + italic("корзини") + \
+                                                                   "\n\nЯкщо потрібно видалити з " + italic("корзини") + \
                        " проїзний або проїзні, натисни " + italic("'Видалити з корзини'") + "."
     return message_text
+
+
+def is_opened_and_chose_the_right_month(query, month_of_order):
+    """
+    :return: True if it is possible to order tickets now and it is allowed to order tickets for the chosen month.
+    Else returns False
+    """
+    if not is_opened:
+        bot.answer_callback_query(query.id, "Замовлення проїзних заверешено. Зміна замовлень неможлива", True)
+        bot.edit_message_text("Замовлення проїзних заверешено. Зміна замовлень неможлива",
+                              chat_id=query.message.chat.id,
+                              message_id=query.message.message_id)
+        return False
+    if month_of_order not in constants.months_for_which_tickets_can_be_ordered:
+        bot.answer_callback_query(query.id,
+                                  "Неправильний місяць замовлення. Неможливо замовити на {}".format(month_of_order),
+                                  True)
+        bot.edit_message_text("Вибери місяць, на який будеш замовляти проїзний (проїзні)",
+                              chat_id=query.message.chat.id,
+                              message_id=query.message.message_id,
+                              reply_markup=generate_markup_choose_orders_month())
+        return False
+    return True
+
+
+def check_max_tickets_sold_to_1_user_per_month(query_or_message, equal_sign, specified_customer_cart=None):
+    """
+    Checks if the customer's order exceeds the maximum amount of tickets that can't be ordered for one month.
+    In other words checks if the user wants to order more tickets than allowed (
+    constants.max_tickets_sold_to_1_user_per_month)
+    :param query_or_message: used in get_customer_cart and get_customer_orders functions
+    :param equal_sign: Bool. If true equal sign will be used comparing the amount of tickets user wants to order and
+    allowed amount of tickets to order
+    :param specified_customer_cart: used in pre_checkout_query when customer cart is empty to specify order
+    :return: True if user wants to order an allowed amount of tickets. Else returns False
+    """
+    customer_cart = get_customer_cart(query_or_message)
+    customer_order = get_customer_orders(query_or_message)
+    if not customer_cart:
+        if not specified_customer_cart:
+            customer_cart_length = 0
+        else:
+            customer_cart_length = len(specified_customer_cart)
+    else:
+        customer_cart_length = len(customer_cart)
+    if not customer_order:
+        customer_order_length = 0
+    else:
+        customer_order_length = len(customer_order)
+    if equal_sign:
+        check_max = not customer_cart_length + customer_order_length == constants.max_tickets_sold_to_1_user_per_month
+    else:
+        check_max = not (customer_cart_length + customer_order_length > constants.max_tickets_sold_to_1_user_per_month)
+    return check_max
 
 
 @app.route('/', methods=['GET', 'HEAD'])
@@ -110,7 +164,13 @@ def choose_month(query):
     awake_mysql_db()
     current_month = query.data.split()[3]
     if current_month not in constants.months_for_which_tickets_can_be_ordered:
-        bot.answer_callback_query(query.id, "Неправильний місяць замовлення", True)
+        bot.answer_callback_query(query.id,
+                                  "Неправильний місяць замовлення. Неможливо замовити на {}".format(current_month),
+                                  True)
+        bot.edit_message_text("Вибери місяць, на який будеш замовляти проїзний (проїзні)",
+                              chat_id=query.message.chat.id,
+                              message_id=query.message.message_id,
+                              reply_markup=generate_markup_choose_orders_month())
         return
     # -------------------------------------------------------------------------------------------------
     try:
@@ -160,28 +220,13 @@ def buy_menu_sorted_by_2_column(query):
 
 @bot.callback_query_handler(lambda query: query.data in database_tickets_keys)
 def add_ticket_to_cart(query):
-    if not is_opened:
-        bot.answer_callback_query(query.id, "Замовлення проїзних заверешено. Зміна замовлень неможлива", True)
+    if not is_opened_and_chose_the_right_month(query, get_month_of_order(query)):
+        return
+    customer_cart = get_customer_cart(query)
+    if not check_max_tickets_sold_to_1_user_per_month(query, True):
+        bot.answer_callback_query(query.id, "Ти можеш замовити максимум 10 проїзних на 1 місяць", True)
         return
     awake_mysql_db()
-    customer_cart = get_customer_cart(query)
-    # ---------------------------------------------------------------------------------------------------------
-    customer_order = get_customer_orders(query)
-    if not customer_cart:
-        customer_cart_length = 0
-    else:
-        customer_cart_length = len(customer_cart)
-    if not customer_order:
-        customer_order_length = 0
-    else:
-        customer_order_length = len(customer_order)
-    if customer_cart_length + customer_order_length == constants.max_tickets_sold_to_1_user_per_month:
-        bot.answer_callback_query(query.id,
-                                  "Вибач, але ти можеш замовити максимум {} проїзних на 1 місяць"
-                                  .format(str(constants.max_tickets_sold_to_1_user_per_month)),
-                                  True)
-        return
-    # ---------------------------------------------------------------------------------------------------------
     sql = "UPDATE customers SET Cart = %s WHERE User_Id = %s"
     val = (customer_cart + database_tickets.get(query.data), query.from_user.id)
     cursor.execute(sql, val)
@@ -196,17 +241,35 @@ def add_ticket_to_cart(query):
 
 @bot.callback_query_handler(lambda query: query.data == "buy")
 def buy(query):
-    if not is_opened:
-        bot.answer_callback_query(query.id, "Замовлення проїзних заверешено. Зміна замовлень неможлива", True)
+    month_of_order = get_month_of_order(query)
+    if not is_opened_and_chose_the_right_month(query, month_of_order):
         return
-    description, price = get_cart_description_and_total_price(query)
-    if not description:
+    customer_cart = get_customer_cart(query)
+    if not customer_cart:
         bot.answer_callback_query(query.id, "Твоя корзина порожня. Вибери проїзні, які хочеш купити", True)
         return
+    if not check_max_tickets_sold_to_1_user_per_month(query, False):
+        bot.answer_callback_query(query.id, "Ти можеш замовити максимум 10 проїзних на 1 місяць", True)
+        return
+    price = 0
+    description = ""
+    for ticket in customer_cart:
+        db_tickets_key = get_key_by_value(database_tickets_keys, ticket)
+        tickets_key_split_name_amount_prise = db_tickets_key.split()
+        tickets_key_split_name = tickets_key_split_name_amount_prise[0].split("-")
+        # Take first letter in first word
+        tickets_key_name = tickets_key_split_name[0][0]
+        if len(tickets_key_split_name) == 2:
+            # Take first letter in first word
+            tickets_key_name += "-" + tickets_key_split_name[1][:3]
+        tickets_key_name += \
+            " " + tickets_key_split_name_amount_prise[1] + " " + tickets_key_split_name_amount_prise[2] + "грн"
+        price += int(db_tickets_key.split()[2])
+        description += "\n" + tickets_key_name
     bot.send_invoice(query.message.chat.id,
                      "Season tickets",
-                     "Твоє замовлення на " + get_month_of_order(query) + ":\n" + description + "\n",
-                     str(get_customer_id(query)) + " " + get_month_of_order(query) + " " + get_customer_cart(query),
+                     "Твоє замовлення на " + month_of_order + ":\n" + description + "\n",
+                     str(get_customer_id(query)) + " " + month_of_order + " " + get_customer_cart(query),
                      constants.payment_provider_token,
                      "UAH",
                      [telebot.types.LabeledPrice("Season tickets", price * 100)],
@@ -217,9 +280,8 @@ def buy(query):
 
 @bot.pre_checkout_query_handler(func=lambda query: True)
 def pre_checkout(pre_checkout_query):
-    if not is_opened:
-        bot.answer_callback_query(pre_checkout_query.id,
-                                  "Замовлення проїзних заверешено. Зміна замовлень неможлива", True)
+    if not is_opened_and_chose_the_right_month(pre_checkout_query,
+                                               month_of_order=pre_checkout_query.invoice_payload.split()[1]):
         return
     if pre_checkout_query.from_user.id not in constants.customers_IDs:
         bot.answer_pre_checkout_query(
@@ -235,6 +297,15 @@ def pre_checkout(pre_checkout_query):
                          "у мене проїзні",
                          reply_markup=markup_user_requests_registration)
         return
+    if not check_max_tickets_sold_to_1_user_per_month(
+            pre_checkout_query,
+            False,
+            specified_customer_cart=pre_checkout_query.invoice_payload.split()[2]):
+        bot.answer_pre_checkout_query(
+            pre_checkout_query.id,
+            False,
+            "Ти можеш замовити максимум 10 проїзних на 1 місяць")
+        return
     bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True,
                                   error_message="Well... Looks like something went wrong. Please, contact me.")
 
@@ -243,17 +314,18 @@ def pre_checkout(pre_checkout_query):
 def successful_payment(message):
     awake_mysql_db()
     old_order = get_full_customer_orders(message)
-    month_of_order = get_month_of_order(message)
+    customer_id = message.successful_payment.invoice_payload.split()[0]
+    month_of_order = message.successful_payment.invoice_payload.split()[1]
+    customer_cart = message.successful_payment.invoice_payload.split()[2]
     if month_of_order in old_order:
-        month_order_old = get_customer_orders(message, message.successful_payment.invoice_payload.split()[1])
-        new_order = old_order.replace(month_order_old, month_order_old +
-                                      message.successful_payment.invoice_payload.split()[2])
+        month_order_old = get_customer_orders(message, month_of_order)
+        new_order = old_order.replace(month_order_old, month_order_old + customer_cart)
     else:
-        new_order = old_order + " " + month_of_order + message.successful_payment.invoice_payload.split()[2]
+        new_order = old_order + " " + month_of_order + customer_cart
     sql = "UPDATE customers SET Cart = %s, Orders = %s WHERE Customer_Id = %s"
     val = ("",
            new_order,
-           message.successful_payment.invoice_payload.split()[0])
+           customer_id)
     cursor.execute(sql, val)
     db.commit()
     bot.send_message(message.chat.id,
@@ -264,8 +336,7 @@ def successful_payment(message):
 
 @bot.callback_query_handler(lambda query: query.data == "remove_from_cart_menu")
 def remove_from_cart_menu(query):
-    if not is_opened:
-        bot.answer_callback_query(query.id, "Замовлення проїзних заверешено. Зміна замовлень неможлива", True)
+    if not is_opened_and_chose_the_right_month(query, get_month_of_order(query)):
         return
     bot.edit_message_text("Вибери проїзні, які потрібно видалити з корзини",
                           chat_id=query.message.chat.id,
@@ -276,8 +347,7 @@ def remove_from_cart_menu(query):
 
 @bot.callback_query_handler(lambda query: query.data in [key + " remove_ticket" for key in database_tickets_keys])
 def remove_ticket(query):
-    if not is_opened:
-        bot.answer_callback_query(query.id, "Замовлення проїзних заверешено. Зміна замовлень неможлива", True)
+    if not is_opened_and_chose_the_right_month(query, get_month_of_order(query)):
         return
     awake_mysql_db()
     old_cart = get_customer_cart(query)
@@ -309,15 +379,17 @@ def return_to_buy_menu(query):
 @bot.message_handler(commands=['refund'])
 def handle_text(message):
     if not is_opened:
-        bot.reply_to(message, "Замовлення проїзних заверешено. Зміна замовлень неможлива")
+        bot.edit_message_text("Замовлення проїзних заверешено. Зміна замовлень неможлива",
+                              chat_id=message.chat.id,
+                              message_id=message.message_id)
         return
     words = message.text.split()
     if len(words) != 2:
         bot.send_message(message.chat.id,
                          "Неправильний формат"
-                         "\nБудь ласка, напиши \"/refund [[номер твоєї картки]]\"" +
-                         "\n" + bold("Будь уважний, адже саме на цю картку я перерахую твої гроші за проїзні!") +
-                         "\nНаприклад, \"/refund 5168424242424242\"",
+                         "\nБудь ласка, напиши \"/refund [[номер твоєї картки]]\""
+                         "\nНаприклад, \"/refund 5168424242424242\""
+                         "\n" + bold("Будь уважний, адже саме на цю картку я перерахую твої гроші за проїзні!"),
                          parse_mode='markdown')
         return
 
@@ -327,8 +399,8 @@ def handle_text(message):
         bot.send_message(message.chat.id,
                          "Неправильний формат номера картки. Має бути 16 цифр"
                          "\nБудь ласка, напиши \"/refund [[номер твоєї картки]]\""
-                         "\n" + bold("Будь уважний, адже саме на цю картку я перерахую твої гроші за проїзні!") +
-                         "\nНаприклад, \"/refund 5168424242424242\"",
+                         "\nНаприклад, \"/refund 5168424242424242\""
+                         "\n" + bold("Будь уважний, адже саме на цю картку я перерахую твої гроші за проїзні!"),
                          parse_mode='markdown')
         return
 
@@ -372,74 +444,124 @@ def remove_ticket(query):
 def remove_ticket(query):
     if not is_opened:
         bot.answer_callback_query(query.id, "Замовлення проїзних заверешено. Зміна замовлень неможлива", True)
+        bot.edit_message_text("Замовлення проїзних заверешено. Зміна замовлень неможлива",
+                              chat_id=query.message.chat.id,
+                              message_id=query.message.message_id)
+        return
+    old_message = query.message.text
+    split_old_message = old_message.split()
+    if old_message.startswith("Спочатку"):
+        month_of_order = split_old_message[9]
+        card_number = split_old_message[27]
+    else:
+        month_of_order = split_old_message[2]
+        card_number = split_old_message[5]
+    if month_of_order not in constants.months_for_which_tickets_can_be_ordered:
+        bot.answer_callback_query(query.id,
+                                  "Неправильний місяць замовлення. Неможливо скасувати замовлення на {}".format(
+                                      month_of_order),
+                                  True)
+        bot.edit_message_text("Спочатку вибери проїзні, які хочеш видалити з замовлення на " + bold(month_of_order) +
+                              "\n\nПотім натисни " + italic("\"Видалити проїзні з замовлення\".") +
+                              "\n\nКоли у мене буде час я перерахую кошти на твою картку " +
+                              bold(card_number) + " та повідомлю тебе про це",
+                              chat_id=query.message.chat.id,
+                              message_id=query.message.message_id,
+                              reply_markup=generate_markup_remove_from_order_menu(query),
+                              parse_mode='markdown')
         return
     awake_mysql_db()
     old_orders_after_refund = get_customer_orders_after_refund(query)
-    new_orders_after_refund = old_orders_after_refund.replace(database_tickets.get(query.data[:-14]), "", 1)
+    tickets_to_delete_from_order = query.data[:-14]
+    new_orders_after_refund = old_orders_after_refund.replace(database_tickets.get(tickets_to_delete_from_order), "", 1)
     # If this ticket has already been deleted from the order
-    if old_orders_after_refund == new_orders_after_refund:
-        bot.edit_message_text(query.message.text,
-                              chat_id=query.message.chat.id,
-                              message_id=query.message.message_id,
-                              reply_markup=generate_markup_remove_from_order_menu(query))
-        bot.answer_callback_query(query.id)
-        return
-    sql = "UPDATE customers SET OrdersAfterRefund = %s WHERE User_Id = %s"
-    val = (new_orders_after_refund, query.from_user.id)
-    cursor.execute(sql, val)
-    db.commit()
-    old_message = query.message.text
-    split_old_message = old_message.split()
-    deleted_ticket = query.data[:-14]
-    deleted_ticket_price = deleted_ticket.split()[2]
-    if old_message.startswith("Спочатку"):
-        new_message = "Місяць замовлення: " + split_old_message[9] + \
-                      "\n\nНомер картки: " + split_old_message[27] + \
-                      "\n\nБуде видалено з замовлення: \n" + deleted_ticket + \
-                      "\n\nБуде повернуто: " + deleted_ticket_price + "грн"
-    else:
-        refund_money = int(old_message.split("Буде повернуто: ")[1].replace("грн", "").strip()) + \
-                       int(deleted_ticket_price)
-        new_message = old_message.split("\nБуде повернуто: ")[0] + deleted_ticket + "\n\nБуде повернуто: " + str(
-            refund_money) + "грн"
-    bot.edit_message_text(new_message,
+    if old_orders_after_refund != new_orders_after_refund:
+        sql = "UPDATE customers SET OrdersAfterRefund = %s WHERE User_Id = %s"
+        val = (new_orders_after_refund, query.from_user.id)
+        cursor.execute(sql, val)
+        db.commit()
+    orders_of_month = get_customer_orders(query, month_of_order)
+    for ticket in new_orders_after_refund:
+        orders_of_month = orders_of_month.replace(ticket, "", 1)
+    tickets_to_refund_message = ""
+    tickets_to_refund_price = 0
+    for ticket in orders_of_month:
+        ticket = get_key_by_value(database_tickets_keys, ticket)
+        tickets_to_refund_message += ticket + "\n"
+        tickets_to_refund_price += int(ticket.split()[2])
+    message = "Місяць замовлення: " + month_of_order + \
+              "\n\nНомер картки: " + card_number + \
+              "\n\nБуде видалено з замовлення: \n" + tickets_to_refund_message + \
+              "\nБуде повернуто: " + str(tickets_to_refund_price) + "грн"
+    bot.edit_message_text(message,
                           chat_id=query.message.chat.id,
                           message_id=query.message.message_id,
                           reply_markup=generate_markup_remove_from_order_menu(query))
-    bot.answer_callback_query(query.id, "\"" + deleted_ticket + "грн\"")
+    bot.answer_callback_query(query.id, "\"" + tickets_to_delete_from_order + "грн\"")
 
 
 @bot.callback_query_handler(lambda query: query.data == "user requests refund")
 def user_requests_refund(query):
     if not is_opened:
         bot.answer_callback_query(query.id, "Замовлення проїзних заверешено. Зміна замовлень неможлива", True)
+        bot.edit_message_text("Замовлення проїзних заверешено. Зміна замовлень неможлива",
+                              chat_id=query.message.chat.id,
+                              message_id=query.message.message_id)
+        return
+    old_message = query.message.text
+    split_old_message = old_message.split()
+    if old_message.startswith("Спочатку"):
+        month_of_order = split_old_message[9]
+        card_number = split_old_message[27]
+    else:
+        month_of_order = split_old_message[2]
+        card_number = split_old_message[5]
+    if month_of_order not in constants.months_for_which_tickets_can_be_ordered:
+        bot.answer_callback_query(query.id,
+                                  "Неправильний місяць замовлення. Неможливо скасувати замовлення на {}".format(
+                                      month_of_order),
+                                  True)
+        bot.edit_message_text("Спочатку вибери проїзні, які хочеш видалити з замовлення на " + bold(month_of_order) +
+                              "\n\nПотім натисни " + italic("\"Видалити проїзні з замовлення\".") +
+                              "\n\nКоли у мене буде час я перерахую кошти на твою картку " +
+                              bold(card_number) + " та повідомлю тебе про це",
+                              chat_id=query.message.chat.id,
+                              message_id=query.message.message_id,
+                              reply_markup=generate_markup_remove_from_order_menu(query),
+                              parse_mode='markdown')
         return
     if get_customer_orders(query) == get_customer_orders_after_refund(query):
         bot.answer_callback_query(query.id, "Ти не змінив замовлення", True)
         return
-    month = query.message.text.split()[2]
-    month_orders_old = get_customer_orders(query, month)
+    month_orders_old = get_customer_orders(query, month_of_order)
     full_old_orders = get_full_customer_orders(query)
     month_orders_new = get_customer_orders_after_refund(query)
-    new_orders = full_old_orders.replace(month + month_orders_old, month + month_orders_new)
-    awake_mysql_db()
-    sql = "UPDATE customers SET Orders = %s WHERE User_Id = %s"
-    val = (new_orders, query.from_user.id)
-    cursor.execute(sql, val)
-    db.commit()
-    bot.send_message(constants.admin_id,
-                     "#Refund " + str(datetime.date.today().strftime("%d.%m.%Y")) +
-                     "\n\n" + get_username_or_first_name(query.message.chat.id, query.from_user.id) +
-                     "\n\n" + query.message.text +
-                     "\n\nId: " + str(query.from_user.id),
-                     reply_markup=markup_admin_confirms_refund)
+    if month_orders_new != "":
+        new_orders = full_old_orders.replace(month_of_order + month_orders_old, month_of_order + month_orders_new)
+    else:
+        new_orders = full_old_orders.replace(month_of_order + month_orders_old, "").strip()
+    if not new_orders == full_old_orders:
+        awake_mysql_db()
+        sql = "UPDATE customers SET Orders = %s WHERE User_Id = %s"
+        val = (new_orders, query.from_user.id)
+        cursor.execute(sql, val)
+        db.commit()
+        bot.send_message(constants.admin_id,
+                         "#Refund " + str(datetime.date.today().strftime("%d.%m.%Y")) +
+                         "\n\n" + get_username_or_first_name(query.message.chat.id, query.from_user.id) +
+                         "\n\n" + query.message.text +
+                         "\n\nId: " + str(query.from_user.id),
+                         reply_markup=markup_admin_confirms_refund)
     # Sends user his new orders for this month -----------------------------------------------------------
-    new_orders = get_customer_orders(query, month)
+    new_orders = get_customer_orders(query, month_of_order)
     description = ""
-    for ticket in new_orders:
-        db_tickets_key = get_key_by_value(database_tickets_keys, ticket)
-        description += "\n" + db_tickets_key + "грн"
-    bot.edit_message_text("Твоє нове замовлення на " + month + ":\n" + description,
+    if new_orders:
+        for ticket in new_orders:
+            db_tickets_key = get_key_by_value(database_tickets_keys, ticket)
+            description += "\n" + db_tickets_key + "грн"
+    else:
+        description += "Порожнє"
+    bot.edit_message_text("Твоє нове замовлення на " + month_of_order + ":\n" + description,
                           chat_id=query.message.chat.id,
                           message_id=query.message.message_id)
     bot.answer_callback_query(query.id)
@@ -509,6 +631,8 @@ def close_form(query):
             user_id = customer[0]
             username = customer[1]
             orders = get_customer_orders_by_user_id(user_id, month)
+            if not orders:
+                continue
             for ticket in orders:
                 # Fills 'admin_final_order_for_month' with season tickets that were ordered. Sums up which and how many
                 # season tickets were ordered
