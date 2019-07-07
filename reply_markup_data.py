@@ -1,7 +1,7 @@
 import telebot.types
 from database_data import *
 
-# Sorted by first column
+# Buy menu sorted by first column
 markup_buy_menu_1 = telebot.types.InlineKeyboardMarkup()
 markup_buy_menu_1.row(telebot.types.InlineKeyboardButton('Сортувати за 2 колонкою',
                                                          callback_data="Sort by 2nd column"))
@@ -32,7 +32,7 @@ markup_buy_menu_1.row(telebot.types.InlineKeyboardButton("{:26}{:24}{}".format("
 markup_buy_menu_1.row(telebot.types.InlineKeyboardButton("Видалити з корзини", callback_data="remove_from_cart_menu"))
 markup_buy_menu_1.row(telebot.types.InlineKeyboardButton("Купити", callback_data="buy"), )
 
-# Sorted by second column
+# Buy menu sorted by second column
 markup_buy_menu_2 = telebot.types.InlineKeyboardMarkup()
 markup_buy_menu_2.row(telebot.types.InlineKeyboardButton('Сортувати за 1 колонкою',
                                                          callback_data="Sort by 1st column"))
@@ -89,58 +89,51 @@ markup_admin.row(telebot.types.InlineKeyboardButton("Відкрити", callback
 markup_admin.row(telebot.types.InlineKeyboardButton("Закрити", callback_data="close"))
 
 
-def generate_markup_remove_from_cart_menu(query_or_message):
+def generate_markup_remove_from_cart_or_refund_order_menu(
+        query_or_message, *, cart_remove=False, refund_order_remove=False):
     """
-    Returns keyboard markup consisting of tickets in customer's CART
+    :param query_or_message: used to get user id
+    :param cart_remove: if True creates markup consisting of tickets in customer's CART or order
+    :param refund_order_remove: if True creates markup consisting of tickets in customer's OrdersAfterRefund or order
+    :return: keyboard markup consisting of tickets in customer's cart or order
     """
     markup_remove_from_cart_menu = telebot.types.InlineKeyboardMarkup()
-    customer_cart = get_customer_cart(query_or_message)
-    for ticket in customer_cart:
+    if cart_remove:
+        customer_cart_or_order = select_customer_db_column_value(query_or_message, "Cart")
+        callback_data_message = " remove_ticket"
+        mark_up_last_row = telebot.types.InlineKeyboardButton("Назад", callback_data="return_to_buy_menu")
+    elif refund_order_remove:
+        customer_cart_or_order = select_customer_db_column_value(query_or_message, "OrdersAfterRefund")
+        callback_data_message = " refund_ticket"
+        mark_up_last_row = telebot.types.InlineKeyboardButton(
+            "Видалити проїзні з замовлення", callback_data="user requests refund")
+    else:
+        raise ValueError("Either cart_remove or order_remove parameters must be specified")
+    for ticket in customer_cart_or_order:
         this_ticket_db_key = get_key_by_value(database_tickets_keys, ticket)
         markup_remove_from_cart_menu.row(
             telebot.types.InlineKeyboardButton(this_ticket_db_key + "грн",
-                                               callback_data=this_ticket_db_key + " remove_ticket"))
-    markup_remove_from_cart_menu.row(
-        telebot.types.InlineKeyboardButton("Назад", callback_data="return_to_buy_menu"))
+                                               callback_data=this_ticket_db_key + callback_data_message))
+    markup_remove_from_cart_menu.row(mark_up_last_row)
     return markup_remove_from_cart_menu
 
 
-def generate_markup_remove_from_order_menu(query_or_message):
+def generate_markup_choose_orders_month(*, order_month=False, refund_month=False):
     """
-    Returns keyboard markup consisting of tickets in customer's ORDER
+    :param order_month: if True creates markup consisting of months on which it is possible to BUY season tickets
+    :param refund_month: if True creates markup consisting of months on which it is possible to Refund season tickets
+    :returns keyboard markup consisting of months on which it is possible to buy or refund season tickets
     """
-    markup_remove_from_order_menu = telebot.types.InlineKeyboardMarkup()
-    customer_order_after_refund = get_customer_orders_after_refund(query_or_message)
-    for ticket in customer_order_after_refund:
-        this_ticket_db_key = get_key_by_value(database_tickets_keys, ticket)
-        markup_remove_from_order_menu.row(
-            telebot.types.InlineKeyboardButton(this_ticket_db_key + "грн",
-                                               callback_data=this_ticket_db_key + " refund_ticket"))
-    markup_remove_from_order_menu.row(
-        telebot.types.InlineKeyboardButton("Видалити проїзні з замовлення", callback_data="user requests refund"))
-    return markup_remove_from_order_menu
-
-
-def generate_markup_choose_orders_month():
-    """
-    Returns keyboard markup consisting of months on which it is possible to buy season tickets
-    """
-    markup_choose_orders_month = telebot.types.InlineKeyboardMarkup()
+    if order_month:
+        callback_data_message = "buy choose month "
+    elif refund_month:
+        callback_data_message = "refund choose month "
+    else:
+        raise ValueError("Either month_of_order or month_of_refund parameters must be specified")
+    markup_choose_month = telebot.types.InlineKeyboardMarkup()
     for month in constants.months_for_which_tickets_can_be_ordered:
-        markup_choose_orders_month.row(telebot.types.InlineKeyboardButton(month,
-                                                                          callback_data="buy choose month " + month))
-    return markup_choose_orders_month
-
-
-def generate_markup_choose_refund_month():
-    """
-    Returns keyboard markup consisting of months on which it is possible to request a refund for season tickets
-    """
-    markup_choose_refund_month = telebot.types.InlineKeyboardMarkup()
-    for month in constants.months_for_which_tickets_can_be_ordered:
-        markup_choose_refund_month.row(telebot.types.InlineKeyboardButton(month,
-                                                                          callback_data="refund choose month " + month))
-    return markup_choose_refund_month
+        markup_choose_month.row(telebot.types.InlineKeyboardButton(month, callback_data=callback_data_message + month))
+    return markup_choose_month
 
 
 def get_current_buy_menu_markup(query):

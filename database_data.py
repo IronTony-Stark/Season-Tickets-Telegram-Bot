@@ -36,12 +36,16 @@ def awake_mysql_db():
         db.ping(True)
 
 
-def get_customer_cart(query_or_message):
+def select_customer_db_column_value(query_or_message, select_option):
     """
-    Returns customer's cart in number format (database_tickets values).
+    Returns selected database column value of the user, which is specified by :param query_or_message
+    :param query_or_message: used to get user id
+    :param select_option: One of the following: "Customer_Id", "User_Id", "Username", "Cart", "Orders",
+    "OrdersAfterRefund", "MonthOfOrder"
+    :return: database value of the :param select_option
     """
     awake_mysql_db()
-    sql = "SELECT Cart FROM customers WHERE User_Id = %s"
+    sql = "SELECT {} FROM customers WHERE User_Id = %s".format(select_option)
     val = (query_or_message.from_user.id,)
     cursor.execute(sql, val)
     result = cursor.fetchall()
@@ -50,35 +54,22 @@ def get_customer_cart(query_or_message):
     return result[0][0]
 
 
-def get_customer_orders(query_or_message, month_of_order=None):
+def get_customer_month_orders(month_of_order, *, query_or_message=None, user_id=None):
     """
-    Returns customer's orders in number format (database_tickets values).
-    """
-    awake_mysql_db()
-    sql = "SELECT Orders FROM customers WHERE User_Id = %s"
-    val = (query_or_message.from_user.id,)
-    cursor.execute(sql, val)
-    result = cursor.fetchall()
-    if not result:
-        return None
-    orders = result[0][0]
-    if not orders:
-        return None
-    if not month_of_order:
-        month_of_order = get_month_of_order(query_or_message)
-    months_orders = orders.split()
-    for order in months_orders:
-        if month_of_order in order:
-            return order.replace(month_of_order, "")
-
-
-def get_customer_orders_by_user_id(user_id, month_of_order):
-    """
-    Returns customer's orders in number format (database_tickets values) using user id.
+    Returns customer's order for :param month_of_order in number format (database_tickets values).
+    :param month_of_order: specifies the month of order that will be returned
+    :param query_or_message: used to get user id. Use either this or :param user_id
+    :param user_id: used to get user id. Use either this or :param query_or_message
+    :return: customer's order in number format (database_tickets values).
     """
     awake_mysql_db()
     sql = "SELECT Orders FROM customers WHERE User_Id = %s"
-    val = (user_id,)
+    if query_or_message:
+        val = (query_or_message.from_user.id,)
+    elif user_id:
+        val = (user_id,)
+    else:
+        raise ValueError("Either query_or_message or user_id parameters must be specified")
     cursor.execute(sql, val)
     result = cursor.fetchall()
     if not result:
@@ -90,56 +81,3 @@ def get_customer_orders_by_user_id(user_id, month_of_order):
     for order in months_orders:
         if month_of_order in order:
             return order.replace(month_of_order, "")
-
-
-def get_full_customer_orders(query_or_message):
-    """
-    Returns customer's orders in number format (database_tickets values).
-    """
-    awake_mysql_db()
-    sql = "SELECT Orders FROM customers WHERE User_Id = %s"
-    val = (query_or_message.from_user.id,)
-    cursor.execute(sql, val)
-    result = cursor.fetchall()
-    if not result:
-        return None
-    return result[0][0]
-
-
-def get_customer_orders_after_refund(query_or_message):
-    """
-    Returns customer's orders after the refund in number format (database_tickets values).
-    """
-    awake_mysql_db()
-    sql = "SELECT OrdersAfterRefund FROM customers WHERE User_Id = %s"
-    val = (query_or_message.from_user.id,)
-    cursor.execute(sql, val)
-    result = cursor.fetchall()
-    if not result:
-        return None
-    return result[0][0]
-
-
-def get_month_of_order(query_or_message):
-    """
-    Returns the month on which the user orders season tickets
-    """
-    awake_mysql_db()
-    sql = "SELECT MonthOfOrder FROM customers WHERE User_Id = %s"
-    val = (query_or_message.from_user.id,)
-    cursor.execute(sql, val)
-    result = cursor.fetchall()
-    if not result:
-        return None
-    return result[0][0]
-
-
-def get_customer_id(query_or_message):
-    """
-    Returns database id of the user
-    """
-    awake_mysql_db()
-    sql = "SELECT Customer_Id FROM customers WHERE User_Id = %s"
-    val = (query_or_message.from_user.id,)
-    cursor.execute(sql, val)
-    return cursor.fetchall()[0][0]
